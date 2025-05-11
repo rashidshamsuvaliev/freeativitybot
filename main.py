@@ -1,21 +1,19 @@
 import os, asyncio, logging
-from aiohttp import web
 from aiogram import Bot, Dispatcher, types
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-import openai
+from aiogram.utils.executor import start_webhook
 from dotenv import load_dotenv
+import openai
 
 load_dotenv()
 
-# ----- ENV -----
 BOT_TOKEN       = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID    = os.getenv("ASSISTANT_ID")
 ADMIN_CHAT_ID   = int(os.getenv("ADMIN_CHAT_ID", "0"))
-WEBHOOK_HOST    = os.getenv("WEBHOOK_HOST")            # https://freeativitybot.onrender.com
+WEBHOOK_HOST    = os.getenv("WEBHOOK_HOST")              # https://freeativitybot.onrender.com
 WEBHOOK_PATH    = "/webhook"
 WEBHOOK_URL     = WEBHOOK_HOST + WEBHOOK_PATH
-PORT            = int(os.getenv("PORT", "10000"))      # Render сам отдаст PORT
+PORT            = int(os.getenv("PORT", "10000"))        # Render даёт PORT
 
 openai.api_key = OPENAI_API_KEY
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +22,6 @@ bot = Bot(BOT_TOKEN, parse_mode="HTML")
 dp  = Dispatcher(bot)
 threads = {}
 
-# ----- GPT ASSISTANT -----
 async def ask(user_id: int, text: str) -> str:
     th = threads.get(user_id) or openai.beta.threads.create().id
     threads[user_id] = th
@@ -39,7 +36,6 @@ async def ask(user_id: int, text: str) -> str:
     msgs = openai.beta.threads.messages.list(th)
     return msgs.data[0].content[0].text.value
 
-# ----- HANDLERS -----
 @dp.message_handler(commands="start")
 async def cmd_start(m: types.Message):
     await m.answer("Привет! Я Марина, HR‑ассистент студии. Что тебя заинтересовало в вакансии?")
@@ -52,20 +48,22 @@ async def chat(m: types.Message):
         note = f"👤 Кандидат @{m.from_user.username or 'без_ника'}:\n{m.text}"
         await bot.send_message(ADMIN_CHAT_ID, note)
 
-# ----- WEBHOOK SERVER -----
-async def on_startup(_: web.Application):
+# --- webhook lifecycle ---
+async def on_startup(dp):
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
-    logging.info("Webhook set -> %s", WEBHOOK_URL)
+    logging.info("Webhook set to %s", WEBHOOK_URL)
 
-async def on_shutdown(_: web.Application):
+async def on_shutdown(dp):
     await bot.delete_webhook()
 
-def create_app():
-    app = web.Application()
-    SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, on_startup=on_startup, on_shutdown=on_shutdown)
-    return app
-
 if __name__ == "__main__":
-    web.run_app(create_app(), host="0.0.0.0", port=PORT)
+    start_webhook(
+        dispatcher=dp,
+        webhook_path=WEBHOOK_PATH,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+        host="0.0.0.0",
+        port=PORT,
+        skip_updates=True,
+    )
