@@ -1,5 +1,6 @@
 import os
 os.environ["OPENAI_BETA_ASSISTANTS"] = "v2"
+
 import asyncio, logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils.executor import start_webhook
