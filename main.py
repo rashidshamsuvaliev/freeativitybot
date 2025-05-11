@@ -7,7 +7,7 @@ import openai
 
 load_dotenv()
 
-# ----------------- ENV -----------------
+# ---------- ENV ----------
 BOT_TOKEN       = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID    = os.getenv("ASSISTANT_ID")
@@ -15,42 +15,41 @@ ADMIN_CHAT_ID   = int(os.getenv("ADMIN_CHAT_ID", "0"))
 WEBHOOK_HOST    = os.getenv("WEBHOOK_HOST")            # https://freeativitybot.onrender.com
 WEBHOOK_PATH    = "/webhook"
 WEBHOOK_URL     = WEBHOOK_HOST + WEBHOOK_PATH
-PORT            = int(os.getenv("PORT", "10000"))      # Render даёт PORT
+PORT            = int(os.getenv("PORT", "10000"))
 
-# ---------- OpenAI client v2 -----------
-client = openai.OpenAI(
-    api_key=OPENAI_API_KEY,
-    default_headers={"OpenAI-Beta": "assistants=v2"}
-)
+# ---------- OpenAI client ----------
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
+V2_HDR = {"OpenAI-Beta": "assistants=v2"}   # принудительный заголовок v2
 
-# --------- aiogram setup ---------------
+# ---------- aiogram setup ----------
 logging.basicConfig(level=logging.INFO)
 bot = Bot(BOT_TOKEN, parse_mode="HTML")
 dp  = Dispatcher(bot)
 threads: dict[int, str] = {}
 
-# ---------- GPT assistant -------------
+# ---------- GPT assistant ----------
 async def ask(user_id: int, text: str) -> str:
-    th = threads.get(user_id) or client.beta.threads.create().id
+    th = threads.get(user_id) or client.beta.threads.create(headers=V2_HDR).id
     threads[user_id] = th
 
     run = client.beta.threads.runs.create(
         thread_id=th,
         assistant_id=ASSISTANT_ID,
         messages=[{"role": "user", "content": text}],
+        headers=V2_HDR
     )
 
     while run.status not in ("completed", "failed", "cancelled"):
         await asyncio.sleep(1)
-        run = client.beta.threads.runs.retrieve(th, run.id)
+        run = client.beta.threads.runs.retrieve(th, run.id, headers=V2_HDR)
 
-    msgs = client.beta.threads.messages.list(th)
+    msgs = client.beta.threads.messages.list(th, headers=V2_HDR)
     return msgs.data[0].content[0].text.value
 
-# ------------ Handlers -----------------
+# ---------- Handlers ----------
 @dp.message_handler(commands="start")
 async def cmd_start(m: types.Message):
-    await m.answer("Привет! Я Марина, HR‑ассистент студии. Что тебя заинтересовало в вакансии?")
+    await m.answer("Привет! Я Марина, HR‑ассистент студии. Что тебя заинтересовало в вакансии?")
 
 @dp.message_handler()
 async def chat(m: types.Message):
@@ -61,7 +60,7 @@ async def chat(m: types.Message):
         note = f"👤 Кандидат @{m.from_user.username or 'без_ника'}:\n{m.text}"
         await bot.send_message(ADMIN_CHAT_ID, note)
 
-# ---------- Web‑hook life‑cycle --------
+# ---------- Web‑hook life‑cycle ----------
 async def on_startup(dp):
     await bot.delete_webhook(drop_pending_updates=True)
     await bot.set_webhook(WEBHOOK_URL)
@@ -70,7 +69,7 @@ async def on_startup(dp):
 async def on_shutdown(dp):
     await bot.delete_webhook()
 
-# --------------- Run -------------------
+# ---------- Run ----------
 if __name__ == "__main__":
     start_webhook(
         dispatcher=dp,
